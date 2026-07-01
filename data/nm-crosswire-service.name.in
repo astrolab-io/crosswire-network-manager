@@ -1,0 +1,15 @@
+[VPN Connection]
+name=crosswire
+service=org.freedesktop.NetworkManager.crosswire
+program=@LIBEXECDIR@/nm-crosswire-service
+supports-multiple-connections=false
+
+# Modern (libnm/GTK4) editor plugin — the .so exports nm_vpn_editor_plugin_factory.
+# nm-connection-editor / GNOME load the config UI from here. A plugin that only
+# declared [GNOME] properties= (the legacy GTK3 ABI) is rejected as "legacy-only".
+[libnm]
+plugin=@PLUGINDIR@/libnm-vpn-plugin-crosswire.so
+
+[GNOME]
+supports-external-ui-mode=true
+supports-hints=true

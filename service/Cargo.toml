@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "nm-crosswire-service"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "NetworkManager VPN service plugin for crosswire (spawns & supervises the crosswire CLI, reports config/state to NetworkManager over D-Bus)"
+
+[[bin]]
+name = "nm-crosswire-service"
+path = "src/main.rs"
+
+[dependencies]
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "signal", "time"] }
+anyhow = "1"
+libc = "0.2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+futures-util = "0.3"
+
+[profile.release]
+lto = "thin"

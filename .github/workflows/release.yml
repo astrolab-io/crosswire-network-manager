@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Tag-driven release: meson-install into a staging root, embed the matching
+# crosswire binary, then package the tree into a self-contained .deb and .rpm
+# with fpm and publish to the GitHub Release. Bundling crosswire lets the package
+# install with no apt/dnf repo; split it out once crosswire is in official repos.
+#   git tag v0.1.0 && git push origin v0.1.0
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  # The pppd plugin embeds the pppd ABI version it was built against, and pppd
+  # refuses to load a plugin from a different version. So build one package per
+  # pppd series: 2.4.x (ubuntu-22.04 — pop-os, Debian 12, Ubuntu 22.04) and
+  # 2.5.x (ubuntu-24.04 — Ubuntu 24.04+, Debian 13). Filenames are tagged with
+  # the series; install the one matching `pppd --version` on your system.
+  package:
+    name: package (pppd ${{ matrix.ppp }}.x)
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            ppp: "2.4"
+          - runner: ubuntu-24.04
+            ppp: "2.5"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            meson ninja-build pkg-config gcc \
+            libnm-dev libglib2.0-dev libgtk-3-dev libgtk-4-dev ppp-dev \
+            libssl-dev \
+            ruby ruby-dev rpm
+          sudo gem install --no-document fpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build & stage install
+        run: |
+          # Install the pppd plugin to a fixed path (matching the service's
+          # --pppd-plugin default), since pppd loads it by absolute path anyway.
+          meson setup build \
+            --prefix=/usr --sysconfdir=/etc \
+            -Dpppd_include=/usr/include \
+            -Dpppd_plugin_dir=/usr/lib/pppd
+          meson compile -C build
+          DESTDIR="$PWD/stage" meson install -C build
+
+      - name: Build & embed CrossWire
+        run: |
+          # Bundle the crosswire binary INTO this package so it installs
+          # self-contained (both .deb and .rpm, via the shared stage tree) with
+          # no apt/dnf repo required. Pinned to the same tag as the plugin.
+          #
+          # WHEN CROSSWIRE IS IN OFFICIAL REPOS: delete this step and declare a
+          # real dependency instead (fpm `-d crosswire`), so the two ship as
+          # separate packages the package manager resolves.
+          git clone --depth 1 --branch "${GITHUB_REF_NAME}" \
+            https://github.com/astrolab-io/crosswire.git crosswire-src \
+            || git clone --depth 1 https://github.com/astrolab-io/crosswire.git crosswire-src
+          cargo build --release --manifest-path crosswire-src/Cargo.toml
+          install -Dm755 crosswire-src/target/release/crosswire stage/usr/sbin/crosswire
+
+      - name: Package .deb and .rpm
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          common=(-s dir -n network-manager-crosswire -v "$v"
+                  --license "GPL-3.0-or-later"
+                  --maintainer "Luan Mattner Müller <luanmm@gmail.com>"
+                  --description "NetworkManager VPN plugin for the crosswire PPP-over-TLS VPN client (FortiGate provider)"
+                  --url "https://github.com/${GITHUB_REPOSITORY}"
+                  -C stage)
+          # crosswire is embedded in the stage tree (see the previous step), so no
+          # crosswire dependency is declared. We still depend on the runtime bits
+          # the bundled binary and plugin need from the repos: NetworkManager,
+          # pppd, and iproute2 (the `ip` command). libssl/libc come with any
+          # NetworkManager install, so they aren't listed explicitly.
+          fpm "${common[@]}" -t deb \
+              -d network-manager -d ppp -d iproute2 \
+              -p "dist/network-manager-crosswire_${v}-pppd${{ matrix.ppp }}_amd64.deb" .
+          fpm "${common[@]}" -t rpm \
+              -d NetworkManager -d ppp -d iproute \
+              -p "dist/network-manager-crosswire-${v}-pppd${{ matrix.ppp }}.x86_64.rpm" .
+
+      - name: Checksums
+        run: cd dist && sha256sum * > "SHA256SUMS-pppd${{ matrix.ppp }}.txt"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

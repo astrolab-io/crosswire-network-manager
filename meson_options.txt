@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+option('plugin_dir', type: 'string', value: '',
+  description: 'NetworkManager plugin dir (default: <libdir>/NetworkManager)')
+option('pppd_include', type: 'string', value: '',
+  description: 'Directory containing pppd/pppd.h (e.g. /usr/include)')
+option('pppd_plugin_dir', type: 'string', value: '',
+  description: 'pppd plugin install dir, e.g. /usr/lib/pppd/2.4.9')
+option('gtk3', type: 'feature', value: 'auto',
+  description: 'Build the GTK3 editor (for nm-connection-editor)')
+option('gtk4', type: 'feature', value: 'auto',
+  description: 'Build the GTK4 editor (for GNOME Settings)')

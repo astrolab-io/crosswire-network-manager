@@ -1,0 +1,5 @@
+/build/
+/service/target/
+config.h
+*.o
+*.so
