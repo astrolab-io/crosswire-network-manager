@@ -130,6 +130,51 @@ If your gateway omits its intermediate certificate (common with FortiGate),
 set **Trusted cert (SHA256)** in the editor to the leaf's digest —
 `echo | openssl s_client -connect host:443 2>/dev/null | openssl x509 -noout -fingerprint -sha256`.
 
+## Desktop environment support
+
+The plugin is two independent layers, and they have different reach:
+
+- **The connection backend** — `nm-crosswire-service`, the `.name` descriptor,
+  the D-Bus policy, and everything under **Design** above — is pure
+  NetworkManager. It has **no toolkit dependency** and works on *any* desktop
+  whose network stack is NetworkManager, driven from `nmcli` if nothing else.
+- **The graphical config form** — `libnm-vpn-plugin-crosswire*.so` — is a
+  GTK3/GTK4 libnm editor. A desktop renders it only if it `dlopen`s libnm VPN
+  editor plugins (GNOME and KDE Plasma do). Toolkits that don't use libnm
+  editors have nowhere to draw the form.
+
+| Desktop | Connect / manage | Native config form | Notes |
+|---|---|---|---|
+| **GNOME** (incl. GNOME-based Pop!_OS) | ✅ applet | ✅ GTK4 editor | Fully native — the primary target. |
+| **KDE Plasma** | ✅ plasma-nm | ✅ GTK3 editor | plasma-nm loads libnm VPN editors. |
+| **Cinnamon / MATE / Budgie / XFCE** | ✅ nm-applet | ✅ GTK3 editor | Anything shipping GTK `nm-applet` / `nm-connection-editor`. |
+| **COSMIC** (Pop!_OS 24.04+), Sway, other non-GTK | ✅ via `nmcli` / `nm-connection-editor` | ⚠️ not in the native applet | See below. |
+
+### Non-GNOME / non-GTK desktops (COSMIC, wlroots compositors, …)
+
+Because the backend is DE-agnostic, CrossWire still **connects** on these
+desktops — the service, SSO browser launch, and IP/DNS hand-off are unchanged.
+Two things differ:
+
+1. **Configuration.** The native applet won't render the GTK config form, so
+   create the connection with the GTK **`nm-connection-editor`** (installable and
+   runnable on any of these desktops) or with **`nmcli`**. The profile is stored
+   in NetworkManager and is fully usable afterwards.
+2. **Interactive auth.** CrossWire supports several auth methods
+   (Username/Password, SAML/SSO, Session cookie). The **browser SSO** flow is
+   driven by the service itself — it launches the browser regardless of the
+   applet — so SSO works on any desktop. The catch is the reverse case: a native
+   applet that only knows how to prompt for a *simple password secret* can drive
+   Username/Password fine but can't hand off an SSO/SAML/2FA flow — a current
+   limitation of, e.g., COSMIC's network applet
+   ([cosmic-epoch#2855](https://github.com/pop-os/cosmic-epoch/issues/2855)).
+
+So on COSMIC specifically: it uses NetworkManager, connections come up fine, and
+you configure them via `nm-connection-editor` or `nmcli`. A native COSMIC
+(`libcosmic`/`iced`) editor panel would be a separate front-end writing the same
+NM profile — contributions welcome; it depends on COSMIC surfacing third-party
+VPN editors ([cosmic-epoch#1360](https://github.com/pop-os/cosmic-epoch/issues/1360)).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). The service is Rust (`cargo test`); the
