@@ -28,7 +28,8 @@ fn get(map: &HashMap<String, String>, key: &str) -> Option<String> {
 }
 
 /// Everything the supervisor needs to launch crosswire for one connection.
-#[derive(Debug, Default)]
+/// `Clone` so the supervisor can re-launch it on a fast connect-phase failure.
+#[derive(Debug, Default, Clone)]
 pub struct Launch {
     /// argv after the binary name.
     pub args: Vec<String>,
