@@ -60,6 +60,13 @@ impl State {
         inner.set(next).await;
     }
 
+    /// The current service state. Used by the supervisor to tell a connect-phase
+    /// failure (still `Starting`, never reached `Started`) apart from a
+    /// mid-session drop, so only the former is retried in place.
+    pub async fn current(&self) -> ServiceState {
+        self.0.lock().await.state
+    }
+
     /// Report a failure of the *active* connection: emit `Failure`, then settle
     /// in `Stopped`. A no-op if we're not currently connecting/connected, so a
     /// child exiting during our own teardown doesn't double-report.
