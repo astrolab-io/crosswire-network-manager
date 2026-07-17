@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 project('NetworkManager-crosswire', 'c',
-  version: '0.3.0',
+  version: '1.0.0',
   license: 'GPL-3.0-or-later',
   meson_version: '>= 0.60',
   default_options: ['c_std=gnu11', 'warning_level=2'],

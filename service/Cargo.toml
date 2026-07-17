@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 [package]
 name = "nm-crosswire-service"
-version = "0.3.0"
+version = "1.0.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
 description = "NetworkManager VPN service plugin for crosswire (spawns & supervises the crosswire CLI, reports config/state to NetworkManager over D-Bus)"
