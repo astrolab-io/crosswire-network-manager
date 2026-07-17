@@ -44,6 +44,7 @@ NetworkManager (root) ── D-Bus ──▶ nm-crosswire-service   (Rust + zbus
 | `libnm-vpn-plugin-crosswire-editor.so` | `properties/` (C, GTK3) | Config form for GTK3 hosts (`nm-connection-editor`) |
 | `libnm-gtk4-vpn-plugin-crosswire-editor.so` | `properties/` (C, GTK4) | Config form for GTK4 hosts (GNOME Settings) |
 | `nm-crosswire-pppd-plugin.so` | `pppd-plugin/` (C) | pppd plugin; at ip-up reports address/DNS/routes to the service |
+| `nm-crosswire-cert-dialog` | `properties/` (C, GTK3 + libnm) | Native "the gateway certificate changed — trust it?" prompt; on accept, re-pins `trusted-cert` and re-activates |
 | `nm-crosswire-service.name` / `.conf` | `data/` | NM plugin descriptor + D-Bus system policy |
 
 ## Design: NetworkManager owns the network
@@ -61,6 +62,27 @@ contract** (documented in
 [`pppd-plugin/CROSSWIRE_ENV_CONTRACT.md`](pppd-plugin/CROSSWIRE_ENV_CONTRACT.md)),
 tested on both sides. The connection state machine emits `Started` only after a
 real ip-up, so the desktop's "connected" indicator reflects reality.
+
+## Changed gateway certificate (trust prompt)
+
+CrossWire pins the gateway's TLS leaf by SHA-256 (`vpn.data[trusted-cert]`). When
+the gateway **rotates its certificate**, the pin no longer matches and CrossWire
+aborts the handshake *before* the SAML/login step — so nothing opens in the
+browser and, without help, the connection just fails silently.
+
+The service watches CrossWire's output for that specific rejection, recovers the
+newly-presented digest, and — instead of retrying a cert that can't be retried —
+launches `nm-crosswire-cert-dialog` in the logged-in user's graphical session
+(found via logind, started through their `systemd --user`, exactly as the SSO
+browser is opened). The dialog shows the gateway and the new fingerprint; on
+**Trust and reconnect** it writes the digest into the connection's `trusted-cert`
+via **libnm** (under the user's own polkit identity) and re-activates. On a
+headless/locked session there is no one to prompt, so it degrades to today's
+plain failure — the log then prints the digest to re-pin manually.
+
+This reuses libnm + GTK3 (already required by the editors), so it adds no new
+dependency; the trust decision remains CrossWire's (the service never overrides
+it — it only offers to update the pin the user already controls).
 
 ## Install
 

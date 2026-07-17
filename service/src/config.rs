@@ -42,6 +42,10 @@ pub struct Launch {
     /// to the server (otherwise the default-routed tunnel swallows its own TLS
     /// transport). `None` if the connection carried no gateway.
     pub gateway: Option<String>,
+    /// The NM connection UUID (from the `connection` setting). Lets a cert-trust
+    /// prompt persist a changed `trusted-cert` back to *this* connection and
+    /// re-activate it. `None` if the connection carried no UUID.
+    pub uuid: Option<String>,
 }
 
 /// Map an NM connection into an crosswire command line. `interactive_probe`
@@ -64,6 +68,13 @@ pub fn map_connection(
 
     let host = get(data, "gateway").unwrap_or_default();
     l.gateway = (!host.is_empty()).then(|| host.clone());
+    // The UUID lives in the top-level `connection` setting, not under `vpn`.
+    l.uuid = conn
+        .get("connection")
+        .and_then(|c| c.get("uuid"))
+        .and_then(|v| v.try_clone().ok())
+        .and_then(|v| String::try_from(v).ok())
+        .filter(|s| !s.is_empty());
     let auth = get(data, "auth-type").unwrap_or_else(|| "password".into());
     // Provider selection from the editor. crosswire is provider-neutral but so
     // far only implements the Fortinet SSL-VPN provider (main.rs hardcodes it —
@@ -183,6 +194,37 @@ mod tests {
 
     fn has_pair(args: &[String], a: &str, b: &str) -> bool {
         args.windows(2).any(|w| w[0] == a && w[1] == b)
+    }
+
+    /// Attach a top-level `connection` setting (where NM stores the UUID).
+    fn with_connection(mut c: Connection, uuid: &str) -> Connection {
+        let mut setting: HashMap<String, OwnedValue> = HashMap::new();
+        setting.insert(
+            "uuid".into(),
+            Value::from(uuid.to_string()).try_to_owned().unwrap(),
+        );
+        c.insert("connection".into(), setting);
+        c
+    }
+
+    #[test]
+    fn uuid_is_extracted_from_connection_setting() {
+        let c = with_connection(
+            conn(&[("gateway", "gw"), ("auth-type", "saml")], &[]),
+            "dd1fc196-469d-4442-a097-c28a04b2494b",
+        );
+        let l = map_connection(&c, "/p.so", "ppp0", false);
+        assert_eq!(
+            l.uuid.as_deref(),
+            Some("dd1fc196-469d-4442-a097-c28a04b2494b")
+        );
+    }
+
+    #[test]
+    fn uuid_is_none_when_absent() {
+        let c = conn(&[("gateway", "gw"), ("auth-type", "saml")], &[]);
+        let l = map_connection(&c, "/p.so", "ppp0", false);
+        assert!(l.uuid.is_none());
     }
 
     #[test]

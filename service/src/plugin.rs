@@ -26,6 +26,9 @@ pub struct Shared {
     pub pppd_plugin: String,
     /// Tunnel interface name handed to `--pppd-ifname` (single connection).
     pub ifname: String,
+    /// Path to the native cert-trust dialog helper, launched in the user's
+    /// session when crosswire rejects the gateway's (changed) certificate.
+    pub cert_dialog: String,
     pub conn: tokio::sync::OnceCell<Connection>,
     /// The connection state machine; the single owner of `StateChanged`.
     pub state: tokio::sync::OnceCell<State>,
@@ -268,7 +271,14 @@ impl VpnPlugin {
         // Enter Starting *before* spawning so the watcher's fail() (which only
         // fires while active) is armed if crosswire dies immediately.
         state.to(ServiceState::Starting).await;
-        match Supervisor::start(state.clone(), self.shared.crosswire_bin.clone(), launch).await {
+        match Supervisor::start(
+            state.clone(),
+            self.shared.crosswire_bin.clone(),
+            self.shared.cert_dialog.clone(),
+            launch,
+        )
+        .await
+        {
             Ok(sup) => {
                 *self.shared.supervisor.lock().await = Some(sup);
                 Ok(())

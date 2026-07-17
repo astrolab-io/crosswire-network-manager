@@ -56,3 +56,22 @@ if gtk4_dep.found()
     install_dir: plugin_dir,
   )
 endif
+
+# --- Cert-trust dialog: the native "the gateway certificate changed — trust
+#     it?" prompt the service launches in the user's session when crosswire
+#     rejects a rotated gateway cert. Reuses libnm + GTK3 (already required
+#     above), so no new dependency; installed next to the service in libexecdir.
+#     GTK3-only: it uses gtk_dialog_run(), which GTK4 dropped. ---
+if gtk3_dep.found()
+  executable(
+    'nm-crosswire-cert-dialog',
+    'nm-crosswire-cert-dialog.c',
+    include_directories: config_inc,
+    dependencies: [libnm_dep, gtk3_dep],
+    c_args: ['-DG_LOG_DOMAIN="nm-crosswire"'],
+    install: true,
+    install_dir: libexecdir,
+  )
+else
+  warning('gtk+-3.0 not found — the native cert-trust dialog will not be built')
+endif

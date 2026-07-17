@@ -8,9 +8,14 @@
 #   sudo bash contrib/install-prebuilt.sh
 #
 # Build the artifacts first (if not present):
-#   cargo build --release --manifest-path service/Cargo.toml   # service
-#   cargo build --release --manifest-path ../crosswire/Cargo.toml
-#   # editor + pppd .so: see README (meson) or the manual gcc lines below.
+#   meson setup build -Dpppd_include=/usr/include \
+#       -Dpppd_plugin_dir=/usr/lib/pppd/$(pppd --version 2>&1 | awk '{print $NF}')
+#   meson compile -C build                                     # editors, pppd .so, service
+#   cargo build --release --manifest-path ../crosswire/Cargo.toml   # the crosswire binary
+#
+# It resolves each artifact across the layouts we produce: a meson build nests
+# them (build/properties, build/pppd-plugin) with the service in build/, while a
+# manual gcc build may drop them flat in build/ — both are found.
 set -euo pipefail
 
 if [ "${EUID:-$(id -u)}" -ne 0 ]; then
@@ -34,30 +39,76 @@ PPPD_PLUGIN="/usr/lib/pppd/nm-crosswire-pppd-plugin.so"   # matches service defa
 CORE="libnm-vpn-plugin-crosswire.so"
 EDITOR_GTK3="libnm-vpn-plugin-crosswire-editor.so"
 EDITOR_GTK4="libnm-gtk4-vpn-plugin-crosswire-editor.so"
+PPPD_SO="nm-crosswire-pppd-plugin.so"
+CERT_DIALOG_BIN="nm-crosswire-cert-dialog"
+BUILD="$REPO/build"
 
-need() { [ -f "$1" ] || { echo "missing artifact: $1 (build it first)" >&2; exit 1; }; }
-need "$REPO/build/$CORE"
-need "$REPO/build/nm-crosswire-pppd-plugin.so"
-need "$REPO/service/target/release/nm-crosswire-service"
-need "$CROSSWIRE/target/release/crosswire"
-if [ ! -f "$REPO/build/$EDITOR_GTK3" ] && [ ! -f "$REPO/build/$EDITOR_GTK4" ]; then
+# Resolve a built artifact by basename across the candidate dirs; print the
+# first hit, empty if none. Meson nests outputs per subdir; a flat build/ from a
+# manual gcc build is also searched.
+locate() {
+    local name="$1"; shift
+    local d
+    for d in "$@"; do
+        if [ -f "$d/$name" ]; then printf '%s\n' "$d/$name"; return 0; fi
+    done
+    return 1
+}
+
+core_path="$(locate "$CORE" "$BUILD/properties" "$BUILD" || true)"
+editor3_path="$(locate "$EDITOR_GTK3" "$BUILD/properties" "$BUILD" || true)"
+editor4_path="$(locate "$EDITOR_GTK4" "$BUILD/properties" "$BUILD" || true)"
+pppd_path="$(locate "$PPPD_SO" "$BUILD/pppd-plugin" "$BUILD" || true)"
+certdlg_path="$(locate "$CERT_DIALOG_BIN" "$BUILD/properties" "$BUILD" || true)"
+# meson copies the service to build/; a bare cargo build leaves it under target/.
+service_path="$(locate "nm-crosswire-service" "$BUILD" "$REPO/service/target/release" || true)"
+crosswire_path="$(locate "crosswire" "$CROSSWIRE/target/release" || true)"
+
+need() { [ -n "$1" ] && [ -f "$1" ] || { echo "missing artifact: $2 (build it first)" >&2; exit 1; }; }
+need "$core_path"      "$CORE"
+need "$pppd_path"      "$PPPD_SO"
+need "$service_path"   "nm-crosswire-service"
+if [ -z "$editor3_path" ] && [ -z "$editor4_path" ]; then
     echo "missing artifact: no editor .so ($EDITOR_GTK3 or $EDITOR_GTK4) — build one first" >&2
     exit 1
 fi
+# crosswire lives in a separate repo. If it isn't built but is already installed,
+# keep the existing one (it lets you iterate on just the NM plugin); only insist
+# on building it for a first-time install.
+INSTALLED_CROSSWIRE="/usr/sbin/crosswire"
+if [ -z "$crosswire_path" ]; then
+    if [ -x "$INSTALLED_CROSSWIRE" ]; then
+        echo "crosswire not built — keeping the installed $INSTALLED_CROSSWIRE."
+    else
+        echo "missing artifact: crosswire (build it: cargo build --release --manifest-path $CROSSWIRE/Cargo.toml)" >&2
+        exit 1
+    fi
+fi
 
 echo "Installing artifacts…"
-install -Dm755 "$REPO/build/$CORE" "$NM_PLUGIN_DIR/$CORE"
+install -Dm755 "$core_path" "$NM_PLUGIN_DIR/$CORE"
 installed_editors=""
-for e in "$EDITOR_GTK3" "$EDITOR_GTK4"; do
-    if [ -f "$REPO/build/$e" ]; then
-        install -Dm755 "$REPO/build/$e" "$NM_PLUGIN_DIR/$e"
-        installed_editors="$installed_editors  $NM_PLUGIN_DIR/$e"$'\n'
-    fi
+for e in "$editor3_path" "$editor4_path"; do
+    [ -n "$e" ] || continue
+    base="$(basename "$e")"
+    install -Dm755 "$e" "$NM_PLUGIN_DIR/$base"
+    installed_editors="$installed_editors  $NM_PLUGIN_DIR/$base"$'\n'
 done
-install -Dm755 "$REPO/build/nm-crosswire-pppd-plugin.so"   "$PPPD_PLUGIN"
-install -Dm755 "$REPO/service/target/release/nm-crosswire-service" "$LIBEXEC/nm-crosswire-service"
-install -Dm755 "$CROSSWIRE/target/release/crosswire"      "/usr/sbin/crosswire"
-install -Dm644 "$REPO/data/nm-crosswire-service.conf"      "$DBUS_DIR/nm-crosswire-service.conf"
+install -Dm755 "$pppd_path"    "$PPPD_PLUGIN"
+install -Dm755 "$service_path" "$LIBEXEC/nm-crosswire-service"
+if [ -n "$crosswire_path" ]; then
+    install -Dm755 "$crosswire_path" "$INSTALLED_CROSSWIRE"
+fi
+install -Dm644 "$REPO/data/nm-crosswire-service.conf" "$DBUS_DIR/nm-crosswire-service.conf"
+
+# Native cert-trust dialog (GTK3): shown when the gateway's pinned certificate
+# changes. Installed next to the service so its default sibling path resolves.
+# Optional — only present if a GTK3 toolkit was available at build time.
+installed_cert_dialog=""
+if [ -n "$certdlg_path" ]; then
+    install -Dm755 "$certdlg_path" "$LIBEXEC/nm-crosswire-cert-dialog"
+    installed_cert_dialog="  $LIBEXEC/nm-crosswire-cert-dialog"$'\n'
+fi
 
 # Generate the .name descriptor with real paths. The template declares the
 # editor plugin under [libnm] (modern) so nm-connection-editor loads the config
@@ -83,7 +134,7 @@ Installed:
   $NM_PLUGIN_DIR/$CORE
 ${installed_editors}  $PPPD_PLUGIN
   $LIBEXEC/nm-crosswire-service
-  /usr/sbin/crosswire
+${installed_cert_dialog}  $INSTALLED_CROSSWIRE
   $NM_NAME_DIR/nm-crosswire-service.name
   $DBUS_DIR/nm-crosswire-service.conf
 

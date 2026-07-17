@@ -5,11 +5,13 @@
 //! We claim that name on the **system** bus, export the VPN.Plugin object, and
 //! translate NM's Connect/Disconnect into a supervised `crosswire` process.
 
+mod cert_trust;
 mod config;
 mod nm;
 mod plugin;
 mod state;
 mod supervisor;
+mod user_session;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -45,6 +47,13 @@ struct Args {
     #[arg(long, default_value = "ppp0")]
     ifname: String,
 
+    /// Path to the native cert-trust dialog helper, launched in the user's
+    /// session when crosswire rejects the gateway's (changed) certificate.
+    /// Defaults to a sibling of this binary (`nm-crosswire-cert-dialog`), so it
+    /// tracks whatever `libexecdir` the package installed into.
+    #[arg(long)]
+    cert_dialog: Option<String>,
+
     /// Kept for NM CLI compatibility (`--persist`); we always run foreground.
     #[arg(long, default_value_t = false)]
     persist: bool,
@@ -66,10 +75,13 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
+    let cert_dialog = args.cert_dialog.clone().unwrap_or_else(default_cert_dialog);
+
     let shared = Arc::new(Shared {
         crosswire_bin: args.crosswire_bin.clone(),
         pppd_plugin: args.pppd_plugin.clone(),
         ifname: args.ifname.clone(),
+        cert_dialog,
         conn: tokio::sync::OnceCell::new(),
         state: tokio::sync::OnceCell::new(),
         gateway: Mutex::new(None),
@@ -123,6 +135,17 @@ async fn main() -> Result<()> {
         sup.stop().await;
     }
     Ok(())
+}
+
+/// Default path to the cert-trust dialog helper: a sibling of this executable,
+/// so it follows the package's `libexecdir` wherever that is. Falls back to the
+/// conventional location if the current exe path can't be determined.
+fn default_cert_dialog() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("nm-crosswire-cert-dialog")))
+        .and_then(|p| p.to_str().map(str::to_string))
+        .unwrap_or_else(|| "/usr/libexec/nm-crosswire-cert-dialog".to_string())
 }
 
 /// Resolves once the plugin has been idle (no active connection) for the quit

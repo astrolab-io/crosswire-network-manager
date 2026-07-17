@@ -38,6 +38,7 @@ TARGETS=(
     "/usr/lib/$ARCH/NetworkManager/libnm-gtk4-vpn-plugin-crosswire-editor.so"
     "/usr/lib/pppd/nm-crosswire-pppd-plugin.so"
     "/usr/libexec/nm-crosswire-service"
+    "/usr/libexec/nm-crosswire-cert-dialog"
     "/usr/sbin/crosswire"
     "/usr/lib/NetworkManager/VPN/nm-crosswire-service.name"
     "/etc/NetworkManager/VPN/nm-crosswire-service.name"
