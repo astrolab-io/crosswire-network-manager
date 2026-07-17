@@ -94,9 +94,7 @@ pub fn classify_exit(
     retries: u32,
     max_retries: u32,
 ) -> ExitAction {
-    if connecting
-        && let Some(digest) = cert_change
-    {
+    if connecting && let Some(digest) = cert_change {
         return ExitAction::PromptCert(digest.to_string());
     }
     if retries < max_retries && fast && connecting {
@@ -192,6 +190,9 @@ mod tests {
     fn classify_ignores_cert_change_once_started() {
         // A cert change can only occur pre-tunnel; if we're no longer connecting
         // it isn't actionable as a prompt.
-        assert_eq!(classify_exit(Some(DIGEST), true, false, 0, 2), ExitAction::Fail);
+        assert_eq!(
+            classify_exit(Some(DIGEST), true, false, 0, 2),
+            ExitAction::Fail
+        );
     }
 }
